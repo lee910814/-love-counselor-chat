@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     huggingface_api_key: str = ""
 
+    # JWT
+    jwt_secret_key: str
+
     # Qdrant
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333

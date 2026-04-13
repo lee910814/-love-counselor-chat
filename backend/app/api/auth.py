@@ -1,8 +1,10 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 
 from app.database import get_db, User
 from app.services.auth_service import hash_password, verify_password, create_access_token, decode_token
@@ -17,6 +19,22 @@ class RegisterRequest(BaseModel):
     username: str
     email: EmailStr
     password: str
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        errors = []
+        if len(v) < 8:
+            errors.append("8자 이상")
+        if not re.search(r"[A-Za-z]", v):
+            errors.append("영문자 포함")
+        if not re.search(r"\d", v):
+            errors.append("숫자 포함")
+        if not re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]", v):
+            errors.append("특수문자 포함")
+        if errors:
+            raise ValueError(f"비밀번호 조건을 확인해 주세요: {', '.join(errors)}")
+        return v
 
 
 class LoginRequest(BaseModel):

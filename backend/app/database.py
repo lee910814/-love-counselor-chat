@@ -45,6 +45,15 @@ class ChatMessage(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class GuestUsage(Base):
+    __tablename__ = "guest_usages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ip = Column(String(64), unique=True, nullable=False, index=True)
+    count = Column(Integer, default=0, nullable=False)
+    last_used_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

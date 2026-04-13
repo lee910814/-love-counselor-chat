@@ -4,9 +4,10 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-SECRET_KEY = "love-counselor-secret-key-change-in-production"
+from app.config import get_settings
+
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7일
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24시간
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -20,13 +21,15 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user_id: int, username: str) -> str:
+    secret_key = get_settings().jwt_secret_key
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {"sub": str(user_id), "username": username, "exp": expire}
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, secret_key, algorithm=ALGORITHM)
 
 
 def decode_token(token: str) -> Optional[dict]:
+    secret_key = get_settings().jwt_secret_key
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return jwt.decode(token, secret_key, algorithms=[ALGORITHM])
     except JWTError:
         return None
