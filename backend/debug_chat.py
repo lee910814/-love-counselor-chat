@@ -1,14 +1,13 @@
 import os
+from dotenv import load_dotenv
 from app.api.chat import ChatRequest, Message
 from app.services.rag_service import get_rag_service
 import asyncio
 
+load_dotenv()
+
 async def debug_chat():
-    os.environ['HUGGINGFACE_API_KEY'] = os.getenv('HUGGINGFACE_API_KEY', '')
-    os.environ['EMBEDDING_MODEL'] = 'jhgan/ko-sroberta-multitask'
-    os.environ['QDRANT_HOST'] = 'localhost'
-    os.environ['QDRANT_PORT'] = '6333'
-    os.environ['QDRANT_COLLECTION_NAME'] = 'love_counselor'
+    # 환경변수는 .env에서 자동 로드됨 (HUGGINGFACE_API_KEY, ANTHROPIC_API_KEY 등)
     
     print("RAG 서비스 초기화 중...")
     rag_service = get_rag_service()

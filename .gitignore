@@ -19,6 +19,10 @@ node_modules/
 dist/
 .cache/
 
+# DB
+*.db
+*.sqlite3
+
 # 로그 및 임시 파일
 *.log
 *.tmp

@@ -81,4 +81,65 @@ export const chatAPI = {
   },
 };
 
+// --- 인증 API ---
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user_id: number;
+  username: string;
+}
+
+export const authAPI = {
+  register: async (username: string, email: string, password: string): Promise<AuthResponse> => {
+    const res = await api.post('/auth/register', { username, email, password });
+    return res.data;
+  },
+  login: async (email: string, password: string): Promise<AuthResponse> => {
+    const res = await api.post('/auth/login', { email, password });
+    return res.data;
+  },
+};
+
+// --- 세션 API ---
+
+export interface Session {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SessionDetail extends Session {
+  messages: { id: number; role: string; content: string; created_at: string }[];
+}
+
+export const sessionsAPI = {
+  create: async (title = '새 대화'): Promise<Session> => {
+    const res = await api.post('/sessions/', { title });
+    return res.data;
+  },
+
+  list: async (): Promise<Session[]> => {
+    const res = await api.get('/sessions/');
+    return res.data;
+  },
+
+  get: async (id: number): Promise<SessionDetail> => {
+    const res = await api.get(`/sessions/${id}`);
+    return res.data;
+  },
+
+  saveMessages: async (sessionId: number, messages: { role: string; content: string }[]) => {
+    await api.post(`/sessions/${sessionId}/messages`, {
+      session_id: sessionId,
+      messages,
+    });
+  },
+
+  delete: async (id: number) => {
+    await api.delete(`/sessions/${id}`);
+  },
+};
+
 export default api;
