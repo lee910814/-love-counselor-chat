@@ -1,0 +1,31 @@
+# 환경변수 (절대 커밋 금지)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+env/
+
+# Node
+node_modules/
+dist/
+.cache/
+
+# 로그 및 임시 파일
+*.log
+*.tmp
+resp.json
+resp_out.txt
+scratch/
+
+# OS
+.DS_Store
+Thumbs.db
