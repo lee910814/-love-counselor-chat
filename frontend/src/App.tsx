@@ -8,8 +8,17 @@ import Sidebar from './components/Sidebar';
 import { chatAPI, sessionsAPI, Message } from './services/api';
 
 function App() {
-  const { isLoggedIn, isGuest } = useAuth();
+  const { isLoggedIn, isGuest, isRestoring } = useAuth();
   const queryClient = useQueryClient();
+
+  // 페이지 로드 시 세션 복구가 끝날 때까지 대기 (AuthPage 깜빡임 방지)
+  if (isRestoring) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-100">
+        <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   if (!isLoggedIn) return <AuthPage />;
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);

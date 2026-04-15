@@ -1,9 +1,10 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
-DATABASE_URL = "sqlite+aiosqlite:///./chat_history.db"
+import os
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./chat_history.db")
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
@@ -52,6 +53,17 @@ class GuestUsage(Base):
     ip = Column(String(64), unique=True, nullable=False, index=True)
     count = Column(Integer, default=0, nullable=False)
     last_used_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 async def init_db():

@@ -1,16 +1,23 @@
 import re
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 
-from app.database import get_db, User
-from app.services.auth_service import hash_password, verify_password, create_access_token, decode_token
+from app.database import get_db, User, RefreshToken
+from app.services.auth_service import (
+    hash_password, verify_password,
+    create_access_token, decode_token,
+    generate_refresh_token, hash_refresh_token, get_refresh_expiry,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 bearer = HTTPBearer(auto_error=False)
+
+REFRESH_COOKIE = "refresh_token"
 
 
 # --- Schemas ---
@@ -57,6 +64,33 @@ class UserOut(BaseModel):
     email: str
 
 
+# --- Helpers ---
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=token,
+        httponly=True,
+        secure=False,       # 프로덕션에서는 True
+        samesite="lax",
+        max_age=7 * 24 * 3600,
+        path="/api/auth",
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(key=REFRESH_COOKIE, path="/api/auth")
+
+
+async def _create_refresh_token_record(user_id: int, db: AsyncSession) -> str:
+    """DB에 리프레시 토큰 저장 후 plain 토큰 반환."""
+    plain, hashed = generate_refresh_token()
+    rt = RefreshToken(user_id=user_id, token_hash=hashed, expires_at=get_refresh_expiry())
+    db.add(rt)
+    await db.commit()
+    return plain
+
+
 # --- Auth Dependency ---
 
 async def get_current_user(
@@ -92,8 +126,7 @@ async def get_optional_user(
 # --- Endpoints ---
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    # 중복 확인
+async def register(body: RegisterRequest, response: Response, db: AsyncSession = Depends(get_db)):
     dup = await db.execute(
         select(User).where((User.email == body.email) | (User.username == body.username))
     )
@@ -109,20 +142,87 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
 
+    plain = await _create_refresh_token_record(user.id, db)
+    _set_refresh_cookie(response, plain)
+
     token = create_access_token(user.id, user.username)
     return TokenResponse(access_token=token, user_id=user.id, username=user.username)
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 틀렸어요")
 
+    plain = await _create_refresh_token_record(user.id, db)
+    _set_refresh_cookie(response, plain)
+
     token = create_access_token(user.id, user.username)
     return TokenResponse(access_token=token, user_id=user.id, username=user.username)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    refresh_token: str = Cookie(default=None, alias=REFRESH_COOKIE),
+):
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="리프레시 토큰이 없어요")
+
+    token_hash = hash_refresh_token(refresh_token)
+    now = datetime.now(timezone.utc)
+
+    result = await db.execute(
+        select(RefreshToken).where(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.revoked == False,  # noqa: E712
+            RefreshToken.expires_at > now,
+        )
+    )
+    rt = result.scalar_one_or_none()
+    if not rt:
+        _clear_refresh_cookie(response)
+        raise HTTPException(status_code=401, detail="유효하지 않은 리프레시 토큰이에요")
+
+    user = await db.get(User, rt.user_id)
+    if not user or not user.is_active:
+        _clear_refresh_cookie(response)
+        raise HTTPException(status_code=401, detail="사용자를 찾을 수 없어요")
+
+    # 토큰 로테이션: 기존 폐기 → 새 발급
+    rt.revoked = True
+    plain, hashed = generate_refresh_token()
+    new_rt = RefreshToken(user_id=user.id, token_hash=hashed, expires_at=get_refresh_expiry())
+    db.add(new_rt)
+    await db.commit()
+
+    _set_refresh_cookie(response, plain)
+    token = create_access_token(user.id, user.username)
+    return TokenResponse(access_token=token, user_id=user.id, username=user.username)
+
+
+@router.post("/logout")
+async def logout(
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    refresh_token: str = Cookie(default=None, alias=REFRESH_COOKIE),
+):
+    if refresh_token:
+        token_hash = hash_refresh_token(refresh_token)
+        result = await db.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+        )
+        rt = result.scalar_one_or_none()
+        if rt:
+            rt.revoked = True
+            await db.commit()
+
+    _clear_refresh_cookie(response)
+    return {"message": "로그아웃 되었어요"}
 
 
 @router.get("/me", response_model=UserOut)

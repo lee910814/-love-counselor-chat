@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import api from '../services/api';
+import { authAPI, setMemoryToken } from '../services/api';
 
 interface AuthUser {
   id: number;
@@ -8,10 +8,10 @@ interface AuthUser {
 
 interface AuthContextType {
   user: AuthUser | null;
-  token: string | null;
   isLoggedIn: boolean;
   isGuest: boolean;
-  login: (token: string, user: AuthUser) => void;
+  isRestoring: boolean;
+  login: (access_token: string, user: AuthUser) => void;
   loginAsGuest: () => void;
   logout: () => void;
 }
@@ -19,59 +19,75 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    const u = localStorage.getItem('user');
-    return u ? JSON.parse(u) : null;
-  });
-  const [isGuest, setIsGuest] = useState<boolean>(
-    () => localStorage.getItem('guest') === 'true'
-  );
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isGuest, setIsGuest] = useState<boolean>(false);
+  // 페이지 로드 시 refresh 시도가 끝날 때까지 UI 마운트 대기
+  const [isRestoring, setIsRestoring] = useState<boolean>(true);
 
+  // 페이지 로드: httpOnly 쿠키로 세션 복구
   useEffect(() => {
-    if (token) {
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    } else {
-      delete api.defaults.headers.common['Authorization'];
-    }
-  }, [token]);
+    authAPI
+      .refresh()
+      .then(({ access_token, user_id, username }) => {
+        setMemoryToken(access_token);
+        setUser({ id: user_id, username });
+        setIsGuest(false);
+      })
+      .catch(() => {
+        // 저장된 리프레시 토큰 없음 → 게스트 상태 복구
+        const savedGuest = localStorage.getItem('guest') === 'true';
+        setIsGuest(savedGuest);
+      })
+      .finally(() => setIsRestoring(false));
 
-  const login = (newToken: string, newUser: AuthUser) => {
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
-    localStorage.removeItem('guest');
-    setToken(newToken);
+    // 인터셉터가 갱신 실패 시 발생시키는 이벤트 구독
+    const handleForceLogout = () => {
+      setUser(null);
+      setIsGuest(false);
+      setMemoryToken(null);
+    };
+    window.addEventListener('auth:logout', handleForceLogout);
+    return () => window.removeEventListener('auth:logout', handleForceLogout);
+  }, []);
+
+  const login = (access_token: string, newUser: AuthUser) => {
+    setMemoryToken(access_token);
     setUser(newUser);
     setIsGuest(false);
-    api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+    localStorage.removeItem('guest');
   };
 
   const loginAsGuest = () => {
-    localStorage.setItem('guest', 'true');
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setIsGuest(true);
-    setToken(null);
+    setMemoryToken(null);
     setUser(null);
-    delete api.defaults.headers.common['Authorization'];
+    setIsGuest(true);
+    localStorage.setItem('guest', 'true');
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('guest');
-    setToken(null);
+  const logout = async () => {
+    try {
+      await authAPI.logout();
+    } catch {
+      // 서버 오류가 있어도 클라이언트는 로그아웃
+    }
+    setMemoryToken(null);
     setUser(null);
     setIsGuest(false);
-    delete api.defaults.headers.common['Authorization'];
+    localStorage.removeItem('guest');
   };
 
   return (
-    <AuthContext.Provider value={{
-      user, token, isGuest,
-      isLoggedIn: !!token || isGuest,
-      login, loginAsGuest, logout,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isGuest,
+        isRestoring,
+        isLoggedIn: !!user || isGuest,
+        login,
+        loginAsGuest,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
