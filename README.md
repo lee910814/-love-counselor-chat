@@ -139,8 +139,3 @@ python run_pipeline.py   # 크롤링 + 임베딩 + Qdrant 업로드
 
 ---
 
-## 주의사항
-
-- `.env` 파일은 절대 커밋하지 마세요 (`.gitignore` 포함)
-- HuggingFace Inference API 무료 플랜은 요청 제한이 있어요
-- 크롤링 시 각 사이트의 이용약관과 `robots.txt`를 확인하세요
